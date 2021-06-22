@@ -1,13 +1,20 @@
-library(ggplot2)
-library(reshape2)
-library(scales)
+# R version 3.6.3 (2020-02-29)
+library(ggplot2) # ggplot2_3.3.3
+library(reshape2) # reshape2_1.4.3
+library(scales) # scales_1.1.1
 #library(pracma)
-library(doParallel)
-library(deSolve)
-library(cowplot)
-library(magick)
-library(tidyr)
-library(viridis)
+library(doParallel) # doParallel_1.0.16 iterators_1.0.8   foreach_1.4.3
+library(deSolve) # deSolve_1.28
+library(cowplot) # cowplot_0.9.4
+library(magick) # magick_2.7.1
+library(tidyr) # tidyr_1.1.3
+library(viridis) # viridis_0.5.1
+
+### loaded via a namespace (and not attached): ####
+# [1] Rcpp_1.0.6       pillar_1.6.0     compiler_3.6.3   plyr_1.8.6       tools_3.6.3      lifecycle_1.0.0  tibble_3.1.0     gtable_0.2.0     pkgconfig_2.0.3 
+# [10] rlang_0.4.10     DBI_1.1.1        gridExtra_2.3    withr_2.4.1      dplyr_1.0.5      stringr_1.4.0    generics_0.1.0   vctrs_0.3.6      grid_3.6.3      
+# [19] tidyselect_1.1.0 glue_1.4.2       R6_2.5.0         fansi_0.4.2      purrr_0.3.4      magrittr_2.0.1   codetools_0.2-16 ellipsis_0.3.1   assertthat_0.2.1
+# [28] colorspace_2.0-0 utf8_1.2.1       stringi_1.5.3    munsell_0.5.0    crayon_1.4.1    
 
 ### PLOT OPTIONS ####
 
@@ -103,9 +110,10 @@ ea10<-expression(italic("\u03B5")*italic(a)*"=10")
 # labels
 label_dispersal<-expression("Scaled dispersal rate "*italic(d["i"]))
 label_correlation<-"Correlation between the two patches"
-label_S0<-expression(paste("Sensitivity coefficient ",italic(S["0"])))
+label_S0<-expression(paste("Sensitivity coefficient ",italic(S["0,i"])))
 label_CV<-"Coefficient of variation (CV)"
 label_balance<-"Relative importance of dispersal"
+label_weight<-"Relative weight of dispersal components"
 
 ### FUNCTIONS ####
 # Define S values depending on B
@@ -601,16 +609,21 @@ ODE_solve<-function(time, params_data, nSpecies, nCommunity, i){
   C_prey=set_C(B0,S_prey,nSpecies,nCommunity,"prey",params_data)
   C_pred=set_C(B0,S_pred,nSpecies,nCommunity,"pred",params_data)
   params<-c(as.list(params),
+            C0=params_data$C0,
             list(S_self=S_self),list(S_prey=S_prey),list(S_pred=S_pred),
             list(C_self=C_self),list(C_prey=C_prey),list(C_pred=C_pred),
             list(disp=params_data$disp[[i]]))
-  for(j in length(params_data$pert[[i]])){
+  B<-B0
+  for(j in 1:length(params_data$pert[[i]])){
     sp<-params_data$pert[[i]][[j]]
-    B0[(sp[2]-1)*nSpecies+sp[1]]=5*B0[(sp[2]-1)*nSpecies+sp[1]] # perturbation of a species
+    B[(sp[2]-1)*nSpecies+sp[1]]=1.2*B[(sp[2]-1)*nSpecies+sp[1]] # perturbation of a species
   }
   #B0[params_data$pert[[i]][1]]=5*B0[params_data$pert[[i]][1]]
-  TS<-as.data.frame(ode(B0, time, ODE_function, params, method="rk4"))
+  TS<-as.data.frame(ode(B, time, ODE_function, params, method="rk4"))
   TS<-rbind(c(0,equilibrium(params,nSpecies,nCommunity)),TS) # add the biomasses at equilibrium to the time series
+  for(i in 1:(nSpecies*nCommunity)){
+    TS[,i+1]<-TS[,i+1]/B0[i] # relative change compared to the equilibrium value
+  }
   return(TS)
 }
 
@@ -634,7 +647,7 @@ table_for_biomass<-function(table,nparams){
               id.vars = names(table)[1:nparams],
               variable.name = "species",
               value.name = "biomass")
-  table<-table %>% separate(species,int=c(NA,"species"),by="_")
+  table<-table %>% separate(species,int=c(NA,"species"),sep="_")
   table$species<-as.factor(table$species)
   table<-table %>% separate(species,c("species","community"),sep=1)
   return(table)
@@ -841,7 +854,7 @@ p1<-ggplot(data=databis)+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0"])*"=10"^"-3"*")")))
+      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0,i"])*"=10"^"-3"*")")))
 
 ### SIMULATIONS - S0 - CORRELATION ####
 # parameters
@@ -967,7 +980,7 @@ p2<-ggplot(data=databis)+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0"])*"=10"^"3"*")")))
+      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0,i"])*"=10"^"3"*")")))
 
 ### SIMULATIONS - S0 - CORRELATION ####
 # parameters
@@ -1656,14 +1669,14 @@ p2<-ggplot(data=databis)+
       fill_colour_weight+
       theme+
       xlab('Trophic level')+
-      ylab('Weight of dispersal components')
+      ylab(label_weight)
 
 ### FINAL GRAPH ####
 graph<-ggdraw(xlim = c(0, 2), ylim = c(0, 1)) +
   draw_plot(p1, 0, 0, 1, 1)+
   draw_plot(p2, 1, 0, 1, 1)+
   draw_plot_label(c("A","B"), c(0,1), c(1,1), size = 30)
-ggsave(paste(path_figure_results,"figure_env_M_weight.pdf",sep=""),graph, width = 16, height = 6, device = cairo_pdf)
+ggsave(paste(path_figure_results,"figure_env_M_weight.pdf",sep=""),graph, width = 16, height = 6.5, device = cairo_pdf)
 
 ########################## ----
 # APPENDIX ############### ----
@@ -1797,6 +1810,7 @@ graph<-ggplot(data=databis)+
 ggsave(paste(path_figure_supp,"supp_correlation_matrix.pdf",sep=""),graph, width = 5, height = 3.5, device = cairo_pdf)
 
 ### TIME SERIES PULSE ####
+#### TL2 ####
 #parameters
 nSpecies=2
 nCommunity=2
@@ -1816,13 +1830,10 @@ params_data<-merge(params_data_original,params_data)
 for(i in 1:dim(params_data)[1]){
   params_data$disp[[i]]=params_data$disp[[i]]*params_data$d[i]
 }
-VE<-diag(rep(sigma^2,nSpecies*nCommunity)) # independent perturbations
-params_data$VE<-list(VE)
 params_data<-params_data[params_data$ma==as.character(ma10) & params_data$ea==as.character(ea01),]
-time<-seq(0,0.10,by=1e-3)
+time<-seq(0,0.30,by=1e-3)
 # simulations
 data_TS<-ODE_solve(time, params_data, nSpecies, nCommunity, 1)
-#data_TS<-merge(data_TS[seq(1,dim(data_TS)[1],by=1e1),],params_data)
 data_TS<-merge(data_TS,params_data)
 
 databis<-melt(data_TS[,-which(names(data_TS)%in%names(params_data[-which(names(params_data)%in%c("ma","ea","time"))]))],
@@ -1837,15 +1848,113 @@ graph<-ggplot(data=databis)+
           facet_grid(ma~ea, labeller=label_parsed, scales = "free")+
           corr_colour_TL_2+
           patch_line+
-          # corr_colour_TL_2_TS+
-          # corr_line_TL_2_TS+
-          theme+#theme(legend.position = "none")+
-          y_axis_log10+
+          theme+
           xlab("Time")+
-          ylab("Biomass")+
+          ylab("Scaled biomass")+
           ggtitle(expression(atop("Dispersal of predators","depending on prey")))
 
 ggsave(paste(path_figure_supp,"supp_time_series.pdf",sep=""),graph, width = 7, height = 6, device = cairo_pdf)
+
+#### TL4 passive ####
+#parameters
+nSpecies=4
+nCommunity=2
+params_data<-expand.grid(pert=list(list(c(1,1),c(2,1),c(3,1),c(4,1))), # perturbation of predators in patch 1
+                         disp=list(c(1,1,1,1)), # dispersal of all species
+                         d=1e-4,
+                         S0_self=1e3,
+                         S0_prey=1e-3,
+                         S0_pred=1e3,
+                         C0=1,
+                         C0_self=0,
+                         C0_prey=0,
+                         C0_pred=0,
+                         correction=correction,
+                         model="passive")
+params_data<-merge(params_data_original,params_data)
+for(i in 1:dim(params_data)[1]){
+  params_data$disp[[i]]=params_data$disp[[i]]*params_data$d[i]
+}
+params_data<-params_data[params_data$ma==as.character(ma10) & params_data$ea==as.character(ea01),]
+time<-seq(0,0.50,by=1e-3)
+# simulations
+data_TS<-ODE_solve(time, params_data, nSpecies, nCommunity, 1)
+data_TS<-merge(data_TS,params_data)
+
+databis<-melt(data_TS[,-which(names(data_TS)%in%names(params_data[-which(names(params_data)%in%c("ma","ea","time"))]))],
+              id.vars = c("ma","ea","time"),
+              variable.name = "species",
+              value.name = "biomass")
+levels(databis$species)<-c("1_1","2_1","3_1","4_1","1_2","2_2","3_2","4_2")
+databis<-databis %>% separate(species,c("species","community"),sep="_")
+
+p1<-ggplot(data=databis)+
+      geom_line(aes(time,biomass,colour=species,linetype=community),size=1.5)+
+      facet_grid(ma~ea, labeller=label_parsed, scales = "free")+
+      corr_colour_TL_4+
+      patch_line+
+      theme+theme(legend.position = "none")+
+      xlab("Time")+
+      ylab("Scaled biomass")+
+      ggtitle(expression(atop("Passive dispersal","of all species")))
+
+#### TL4 everything ####
+#parameters
+nSpecies=4
+nCommunity=2
+params_data<-expand.grid(pert=list(list(c(1,1),c(2,1),c(3,1),c(4,1))), # perturbation of predators in patch 1
+                         disp=list(c(1,1,1,1)), # dispersal of all species
+                         d=1e-2,
+                         S0_self=1e3,
+                         S0_prey=1e-3,
+                         S0_pred=1e3,
+                         C0=0,
+                         C0_self=1,
+                         C0_prey=1,
+                         C0_pred=1,
+                         correction=correction,
+                         model="everything")
+params_data<-merge(params_data_original,params_data)
+for(i in 1:dim(params_data)[1]){
+  params_data$disp[[i]]=params_data$disp[[i]]*params_data$d[i]
+}
+params_data<-params_data[params_data$ma==as.character(ma10) & params_data$ea==as.character(ea01),]
+params_data$weight=1
+time<-seq(0,0.5,by=1e-4)
+# simulations
+data_TS<-ODE_solve(time, params_data, nSpecies, nCommunity, 1)
+data_TS<-merge(data_TS,params_data)
+
+databis<-melt(data_TS[,-which(names(data_TS)%in%names(params_data[-which(names(params_data)%in%c("ma","ea","time"))]))],
+              id.vars = c("ma","ea","time"),
+              variable.name = "species",
+              value.name = "biomass")
+levels(databis$species)<-c("1_1","2_1","3_1","4_1","1_2","2_2","3_2","4_2")
+databis<-databis %>% separate(species,c("species","community"),sep="_")
+
+p2<-ggplot(data=databis)+
+      geom_line(aes(time,biomass,colour=species,linetype=community),size=1.5)+
+      corr_colour_TL_4+
+      patch_line+
+      theme
+legend<-get_legend(p2)
+
+p2<-ggplot(data=databis)+
+      geom_line(aes(time,biomass,colour=species,linetype=community),size=1.5)+
+      facet_grid(ma~ea, labeller=label_parsed, scales = "free")+
+      corr_colour_TL_4+
+      patch_line+
+      theme+theme(legend.position = "none")+
+      xlab("Time")+
+      ylab("Scaled biomass")+
+      ggtitle(expression(atop("Density-dependent","dispersal of all species")))
+
+graph<-ggdraw(xlim = c(0, 2.15), ylim = c(0, 1)) +
+  draw_plot(p1, 0, 0, 1, 1)+
+  draw_plot(p2, 1, 0, 1, 1)+
+  draw_plot(legend, 2.05, 0.25, 0.05, 0.5)+
+  draw_plot_label(c("A","B"), c(0,1), c(1,1), size = 30)
+ggsave(paste(path_figure_supp,"supp_time_series_everything.pdf",sep=""),graph, width = 14, height = 6, device = cairo_pdf)
 
 ########################## ----
 # DISPERSAL DEPENDING ON SELF INTERACTIONS ####
@@ -1913,7 +2022,7 @@ p1<-ggplot(data=databis[databis$S0_self==1e-3 & databis$model=="disp_pred",])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression("Dispersal of predators ("*italic(S["0"])*"=10"^"-3"*")"))
+      ggtitle(expression("Dispersal of predators ("*italic(S["0,i"])*"=10"^"-3"*")"))
 
 # p2<-ggplot(data=databis[databis$S0_self==1e-3 & databis$model=="disp_prey",])+
 #       geom_line(aes(d,Correlation,colour=Species),size=1.5)+
@@ -1952,7 +2061,7 @@ p2<-ggplot(data=databis[databis$S0_self==1e3 & databis$model=="disp_prey",])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(paste("Dispersal of prey (",italic(S["0"]),"=10"^"3",")")))
+      ggtitle(expression(paste("Dispersal of prey (",italic(S["0,i"]),"=10"^"3",")")))
 
 # graph<-ggdraw(xlim = c(0, 2.15), ylim = c(0, 2)) +
 #   draw_plot(p1, 0, 1, 1, 1)+
@@ -2121,7 +2230,7 @@ p1<-ggplot(data=databis[databis$S0_prey==1e-3,])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0"])*"=10"^"-3"*")")))
+      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0,i"])*"=10"^"-3"*")")))
 
 
 p3<-ggplot(data=databis[databis$S0_prey==1e3,])+
@@ -2134,7 +2243,7 @@ p3<-ggplot(data=databis[databis$S0_prey==1e3,])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0"])*"=10"^"3"*")")))
+      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0,i"])*"=10"^"3"*")")))
 
 ### SIMULATIONS - S0 - CORRELATION ####
 # parameters
@@ -2252,7 +2361,7 @@ p2<-ggplot(data=databis[databis$S0_pred==1e-3,])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0"])*"=10"^"-3"*")")))
+      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0,i"])*"=10"^"-3"*")")))
 
 p4<-ggplot(data=databis[databis$S0_pred==1e3,])+
       geom_vline(xintercept=1e3,linetype='dashed')+
@@ -2264,7 +2373,7 @@ p4<-ggplot(data=databis[databis$S0_pred==1e3,])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0"])*"=10"^"3"*")")))
+      ggtitle(expression(atop("Dispersal of prey","depending on predators ("*italic(S["0,i"])*"=10"^"3"*")")))
 
 ### SIMULATIONS - S0 - CORRELATION ####
 # parameters
@@ -2543,7 +2652,7 @@ p1<-ggplot(data=databis[databis$S0_prey==1e-3,])+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0"])*"=10"^"-3"*")")))
+      ggtitle(expression(atop("Dispersal of predators","depending on prey ("*italic(S["0,i"])*"=10"^"-3"*")")))
 
 ### SIMULATIONS - S0 - CORRELATION - TOP-DOWN CONTROL - CHAIN LENGTH ####
 # parameters - 2 species
@@ -2824,7 +2933,7 @@ p2<-ggplot(data=databis)+
       ylim(-1,1)+
       xlab(label_dispersal)+
       ylab(label_correlation)+
-      ggtitle(expression("Dispersal of herbivores ("*italic(S["0"])*"=10"^"3"*")"))
+      ggtitle(expression("Dispersal of herbivores ("*italic(S["0,i"])*"=10"^"3"*")"))
 
 ### FINAL GRAPH ####
 graph<-ggdraw(xlim = c(0, 2.15), ylim = c(0, 1)) +
@@ -3240,7 +3349,7 @@ p1<-ggplot(data=databis)+
   fill_colour_weight+
   theme+theme(legend.position = "none")+
   xlab('Trophic level')+
-  ylab('Weight of dispersal components')+
+  ylab(label_weight)+
   ggtitle("Prey density dependent")
 
 databis<-NULL
@@ -3269,7 +3378,7 @@ p2<-ggplot(data=databis)+
       fill_colour_weight+
       theme+theme(legend.position = "none")+
       xlab('Trophic level')+
-      ylab('Weight of dispersal components')+
+      ylab(label_weight)+
       ggtitle("Predator density dependent")
 
 ### FINAL GRAPH ####
@@ -4063,7 +4172,7 @@ p3<-ggplot(data=databis)+
       fill_colour_weight+
       theme+
       xlab('Trophic level')+
-      ylab('Weight of dispersal components')
+      ylab(label_weight)
 
 # CORRELATION MATRIX ####
 databis<-data_C[,-which(names(data_C)%in%names(params_data)[-which(names(params_data)%in%c("ea","ma"))])]
@@ -4563,124 +4672,3 @@ graph<-ggdraw(xlim = c(0, 2.15), ylim = c(0, 2)) +
   draw_plot(legend, 2.05, 0.25, 0.05, 0.5)+
   draw_plot_label(c("A","B","C","D"), c(0,1,0,1), c(2,2,1,1), size = 30)
 ggsave(paste(path_figure_supp,"supp_linear.pdf",sep=""),graph, width = 15, height = 16, device = cairo_pdf)
-
-########################## ----
-# VARIANCE TRANSMISSION #### ----
-# parameters - 4 species
-nSpecies=4
-nCommunity=1
-params_data<-expand.grid(pert=list(list(c(1,1))), # perturbation of species 1 in patch 1
-                         disp=list(c(0,0,0,0)), # no dispersal
-                         d=0,
-                         S0_self=1,
-                         S0_prey=1,
-                         S0_pred=1,
-                         C0=0,
-                         C0_self=0,
-                         C0_prey=0,
-                         C0_pred=0,
-                         correction=correction,
-                         model="1")
-params_data<-rbind(params_data,expand.grid(pert=list(list(c(4,1))), # perturbation of species 4 in patch 1
-                                           disp=list(c(0,0,0,0)), # no dispersal
-                                           d=0,
-                                           S0_self=1,
-                                           S0_prey=1,
-                                           S0_pred=1,
-                                           C0=0,
-                                           C0_self=0,
-                                           C0_prey=0,
-                                           C0_pred=0,
-                                           correction=correction,
-                                           model="4"))
-params_data<-rbind(params_data,expand.grid(pert=list(list(c(1,1),c(2,1),c(3,1),c(4,1))), # perturbation of species 4 in patch 1
-                                           disp=list(c(0,0,0,0)), # no dispersal
-                                           d=0,
-                                           S0_self=1,
-                                           S0_prey=1,
-                                           S0_pred=1,
-                                           C0=0,
-                                           C0_self=0,
-                                           C0_prey=0,
-                                           C0_pred=0,
-                                           correction=correction,
-                                           model="1234"))
-params_data<-merge(params_data_original,params_data)
-for(i in 1:dim(params_data)[1]){
-  params_data$disp[[i]]=params_data$disp[[i]]*params_data$d[i]
-}
-VE<-diag(rep(sigma^2,nSpecies*nCommunity)) # independent perturbations
-params_data$VE<-list(VE)
-# simulations - 4 species
-no_cores <- detectCores() - 1  
-cl <- makeCluster(no_cores)  
-registerDoParallel(cl)  
-results<-foreach(i=1:dim(params_data)[1]) %dopar% analytic(params_data,jacobian_disp_hauzy,nSpecies,nCommunity,i)
-stopCluster(cl)
-list_data<-create_data(params_data,nSpecies,nCommunity)
-data_B<-list_data[[1]][,-which(names(list_data[[1]])%in%c("pert","disp"))]
-data_V<-list_data[[2]][,-which(names(list_data[[2]])%in%c("pert","disp"))]
-data_C<-list_data[[3]][,-which(names(list_data[[3]])%in%c("pert","disp"))]
-for (i in 1:dim(params_data)[1]){
-  data_B[i,which(names(data_B)%in%list_data[[4]])]<-unlist(results[[i]][1])
-  data_V[i,which(names(data_V)%in%list_data[[5]])]<-unlist(results[[i]][2])
-  data_C[i,which(names(data_C)%in%list_data[[6]])]<-unlist(results[[i]][3])
-}
-
-databis<-data_V[,-which(names(data_V)%in%names(params_data)[-which(names(params_data)%in%c("ea","ma","sigma","model"))])]
-databis<-table_for_matrix(databis,4)
-databis<-databis[databis$species_1==databis$species_2 & databis$community_1==databis$community_2,]
-databis$species_2<-NULL
-databis$community_2<-NULL
-names(databis)[names(databis)=="species_1"]="species"
-names(databis)[names(databis)=="community_1"]="community"
-names(databis)[names(databis)=="value"]="variance"
-databis$x<-as.numeric(databis$species)
-
-p1<-ggplot(data=databis[databis$model=="1",])+
-  geom_rect(aes(xmin=x-0.5,xmax=x+0.5,ymin=1e-16,ymax=variance,fill=species))+
-  facet_grid(ma~ea, labeller=label_parsed)+
-  fill_colour_TL_4+
-  y_axis_log10_short+
-  theme+theme(legend.position = "none")+
-  xlab('Trophic level')+
-  ylab("Variance")+
-  ggtitle("Species 1 perturbed")
-
-p2<-ggplot(data=databis[databis$model=="4",])+
-  geom_rect(aes(xmin=x-0.5,xmax=x+0.5,ymin=1e-16,ymax=variance,fill=species))+
-  facet_grid(ma~ea, labeller=label_parsed)+
-  fill_colour_TL_4+
-  y_axis_log10_short+
-  theme+theme(legend.position = "none")+
-  xlab('Trophic level')+
-  ylab("Variance")+
-  ggtitle("Species 4 perturbed")
-
-p3<-ggplot(data=databis[databis$model=="1234",])+
-  geom_rect(aes(xmin=x-0.5,xmax=x+0.5,ymin=1e-16,ymax=variance,fill=species))+
-  facet_grid(ma~ea, labeller=label_parsed)+
-  fill_colour_TL_4+
-  y_axis_log10_short+
-  theme+theme(legend.position = "none")+
-  xlab('Trophic level')+
-  ylab("Variance")+
-  ggtitle("All species perturbed")
-
-databis<-params_data_original
-databis$x=0.5
-databis$y=0.5
-
-p4<-ggplot(data=databis)+
-  geom_raster(aes(x,y,fill=m))+
-  facet_grid(ma~ea, labeller=label_parsed)+
-  scale_fill_viridis(name=expression(paste("Metabolic\nrate ratio",italic(m))),
-                     breaks = unique(databis$m),
-                     trans = "log10")+
-  theme_matrix+theme(axis.text=element_blank(),
-                     legend.key=element_blank(),
-                     legend.text.align = 1)+
-  scale_x_continuous(trans=log10_trans())+
-  scale_y_continuous(trans=log10_trans())+
-  xlab("")+
-  ylab("")
